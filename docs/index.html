@@ -26,7 +26,15 @@ button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 .info{font-size:13px;color:var(--sub);line-height:1.3}
 .info b{color:var(--fg);font-size:15px}
 .empty{color:var(--sub);text-align:center;padding:16px}
+.legend{display:flex;gap:10px;align-items:flex-start;padding:6px 0;font-size:14px}
+.legend .no{width:28px;height:28px;font-size:14px}
+#map{height:300px;border-radius:10px;border:1px solid var(--line)}
+.pin{width:30px;height:30px;border-radius:50%;background:var(--accent);color:#fff;border:3px solid #fff;display:grid;place-items:center;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+.edit .pin{background:#d9480f}
+details summary{cursor:pointer;font-weight:700}
+textarea{width:100%;height:90px;font:12px monospace}
 </style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 </head>
 <body>
 <main>
@@ -42,8 +50,23 @@ button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
     <div class="sub" style="margin-top:8px">希望時刻の <span id="range"></span> に発車するバスを表示</div>
   </div>
   <div class="card" id="list"></div>
+  <div class="card">
+    <details open>
+      <summary>📍 バス停の場所</summary>
+      <div id="map" style="margin-top:10px"></div>
+      <div id="legend" style="margin-top:8px"></div>
+      <div class="sub">地図上の位置は目安です。ズレていたら下の「位置を調整」で動かせます。</div>
+      <button id="editBtn" style="margin-top:8px">位置を調整</button>
+      <div id="editBox" hidden style="margin-top:8px">
+        <div class="sub">ピンをドラッグして実際の場所に合わせてください（この端末に保存されます）。他の端末にも反映したい場合は下の文字を開発者に渡してください。</div>
+        <textarea id="posOut" readonly></textarea>
+        <button id="resetBtn">調整をリセット</button>
+      </div>
+    </details>
+  </div>
   <div class="sub" id="stops"></div>
 </main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 const BEFORE=10, AFTER=30;
 const DAY_LABEL={weekday:"平日",saturday:"土曜",holiday:"日祝"};
@@ -82,11 +105,52 @@ document.getElementById("nowBtn").onclick=()=>{timeEl.value=jstNow().time;render
 document.getElementById("m10").onclick=()=>shift(-10);
 document.getElementById("p10").onclick=()=>shift(10);
 timeEl.addEventListener("input",render);
+/* ---- 地図 ---- */
+let map, markers={}, editing=false;
+const OFFS={1:[.00012,-.00022],2:[-.00012,.00018],3:[-.00022,.0],4:[.00012,.0001],5:[-.00012,-.0001]}; // 初期位置の目安（重ならないよう少しずらす）
+const lsGet=()=>{try{return JSON.parse(localStorage.getItem("busPos")||"{}")}catch(e){return {}}};
+const lsSet=v=>{try{localStorage.setItem("busPos",JSON.stringify(v))}catch(e){}};
+function posOf(no,saved,fixed){
+  if(saved[no]) return saved[no];
+  if(fixed[no]) return fixed[no];
+  const i=DATA.stop_info[no],o=OFFS[no]||[0,0];
+  return [i.lat+o[0],i.lon+o[1]];
+}
+function dumpPos(){
+  const o={};for(const [n,m] of Object.entries(markers)){const p=m.getLatLng();o[n]=[+p.lat.toFixed(6),+p.lng.toFixed(6)]}
+  document.getElementById("posOut").value=JSON.stringify(o);
+}
+async function initMap(){
+  const info=DATA.stop_info;
+  document.getElementById("legend").innerHTML=Object.entries(info).map(([n,i])=>
+    `<div class="legend"><div class="no">${n}</div><div><b>${i.name}</b> ${i.landmark?"・"+i.landmark:""}${i.from?"（"+i.from+"から来るバス）":""}</div></div>`).join("");
+  let fixed={};try{fixed=await (await fetch("positions.json?"+Date.now())).json()}catch(e){}
+  const saved=lsGet();
+  const pts=Object.keys(info).map(n=>posOf(n,saved,fixed));
+  map=L.map("map",{scrollWheelZoom:false});
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
+  map.fitBounds(L.latLngBounds(pts).pad(.3),{maxZoom:18});
+  Object.keys(info).forEach((n,k)=>{
+    const m=L.marker(pts[k],{draggable:false,icon:L.divIcon({className:"",html:`<div class="pin">${n}</div>`,iconSize:[30,30],iconAnchor:[15,15]})}).addTo(map);
+    m.on("dragend",()=>{const s=lsGet();s[n]=[m.getLatLng().lat,m.getLatLng().lng];lsSet(s);dumpPos()});
+    markers[n]=m;
+  });
+  document.getElementById("editBtn").onclick=()=>{
+    editing=!editing;
+    document.getElementById("editBox").hidden=!editing;
+    document.getElementById("map").classList.toggle("edit",editing);
+    document.getElementById("editBtn").textContent=editing?"調整を終える":"位置を調整";
+    Object.values(markers).forEach(m=>editing?m.dragging.enable():m.dragging.disable());
+    dumpPos();
+  };
+  document.getElementById("resetBtn").onclick=()=>{lsSet({});location.reload()};
+}
 fetch("data.json?"+Date.now()).then(r=>r.json()).then(d=>{
   DATA=d;
+  try{initMap()}catch(e){}
   timeEl.value=jstNow().time;
   document.getElementById("meta").textContent="時刻表更新: "+d.updated;
-  document.getElementById("stops").innerHTML="①〜③ 赤羽北三丁目 / ④⑤ 志村四小<br>出典: 国際興業バス時刻表（NAVITIME）。赤羽駅に行かない便は除外。";
+  document.getElementById("stops").innerHTML="出典: 国際興業バス時刻表（NAVITIME）。赤羽駅に行かない便は除外。";
   render();
 }).catch(()=>{document.getElementById("list").innerHTML='<div class="empty">時刻表データを読み込めませんでした</div>'});
 </script>

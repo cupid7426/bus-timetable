@@ -36,9 +36,16 @@ def parse(html):
 def main():
     cfg = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
     out = {"weekday": [], "saturday": [], "holiday": []}
+    info = {}
     for s in cfg["stops"]:
         data = parse(get(URL.format(**s)))
         for reg in data["regular"]:
+            if s["no"] not in info:
+                text = reg["courseGroupDestination"] + " ".join(n for sc in reg["schedules"] for n in sc["notes"])
+                m = re.search(r"（(.+?のりば)発）", reg["courseGroupDestination"]) or re.search(r"(体育館通りのりば|[^、※＼\s]+のりば)の時刻表", text)
+                m2 = re.search(r"上記便は(.+?)よりまいります", text)
+                info[s["no"]] = {"name": s["name"], "landmark": m.group(1) if m else "",
+                                 "from": m2.group(1) if m2 else "", "lat": data["latitude"], "lon": data["longitude"]}
             for sch in reg["schedules"]:
                 t = sch["scheduleType"]
                 if t not in out:
@@ -67,6 +74,7 @@ def main():
     jst = timezone(timedelta(hours=9))
     result = {"updated": datetime.now(jst).strftime("%Y-%m-%d %H:%M"),
               "stops": {str(s["no"]): s["name"] for s in cfg["stops"]},
+              "stop_info": {str(k): v for k, v in sorted(info.items())},
               "holidays": hol, "timetable": out}
     (ROOT / "docs" / "data.json").write_text(json.dumps(result, ensure_ascii=False, indent=0), encoding="utf-8")
     print({k: len(v) for k, v in out.items()})
