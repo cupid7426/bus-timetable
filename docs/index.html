@@ -110,7 +110,7 @@ document.getElementById("p10").onclick=()=>shift(10);
 timeEl.addEventListener("input",render);
 /* ---- 地図 ---- */
 let map, markers={}, editing=false;
-const OFFS={1:[.00012,-.00022],2:[-.00012,.00018],3:[-.00022,.0],4:[.00012,.0001],5:[-.00012,-.0001]}; // 初期位置の目安（重ならないよう少しずらす）
+const OFFS={1:[.00012,-.00022],2:[-.00022,.0],3:[-.00012,.00018],4:[.00012,.0001],5:[-.00012,-.0001]}; // 初期位置の目安（重ならないよう少しずらす）
 const lsGet=()=>{try{return JSON.parse(localStorage.getItem("busPos")||"{}")}catch(e){return {}}};
 const lsSet=v=>{try{localStorage.setItem("busPos",JSON.stringify(v))}catch(e){}};
 function posOf(no,saved,fixed){
